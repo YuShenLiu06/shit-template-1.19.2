@@ -8,7 +8,9 @@ import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
+import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
+import net.minecraft.util.math.Vec3f;
 import net.minecraft.world.World;
 import net.minecraft.entity.ItemEntity;
 import net.minecraft.item.ItemStack;
@@ -81,9 +83,8 @@ public class ShitCommand {
 
         player.sendMessage(formatText("噗~", Formatting.GOLD), false);
 
-        Vec3d playerPos = player.getPos();
-        Vec3d lookVec = player.getRotationVec(1.0f);
-        Vec3d behindPos = playerPos.subtract(lookVec.multiply(0.5)).add(0, -0.5, 0);
+        // 获取玩家精确的臀部位置
+        Vec3d playerPos = getButtPosition(player);
 
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
         int count = 8 + player.getRandom().nextInt(5);
@@ -98,31 +99,34 @@ public class ShitCommand {
                 if (!player.isAlive()) return;
 
                 world.getServer().execute(() -> {
+                    // 创建腐肉实体
                     ItemEntity item = new ItemEntity(
                             world,
-                            behindPos.x, behindPos.y, behindPos.z,
+                            playerPos.x, playerPos.y, playerPos.z,
                             new ItemStack(Items.ROTTEN_FLESH)
                     );
 
-                    // 增加喷射动能
-                    Vec3d velocity = new Vec3d(
-                            (player.getRandom().nextDouble() - 0.5) * 0.3, // 增加水平速度
-                            0.3 + player.getRandom().nextDouble() * 0.2,    // 增加垂直速度
-                            (player.getRandom().nextDouble() - 0.5) * 0.3  // 增加水平速度
-                    );
+                    // 设置拾取延迟（防止立即拾取）
+                    item.setPickupDelay(40); // 2秒（20 ticks/秒）
 
-                    // 添加一些旋转效果
+                    // 计算精确的喷射方向（与玩家视角相反）
+                    Vec3d velocity = calculateShitVelocity(player);
+
+                    // 添加随机旋转效果
                     item.setYaw(player.getRandom().nextFloat() * 360.0F);
                     item.setPitch(player.getRandom().nextFloat() * 180.0F - 90.0F);
+
+                    // 应用速度
                     item.setVelocity(velocity);
 
+                    // 生成实体
                     world.spawnEntity(item);
 
                     // 每喷出几个腐肉播放一次音效
                     if (index % 3 == 0) {
                         world.playSound(
                                 null,
-                                behindPos.x, behindPos.y, behindPos.z,
+                                playerPos.x, playerPos.y, playerPos.z,
                                 SoundEvents.ENTITY_SLIME_SQUISH,
                                 SoundCategory.PLAYERS,
                                 0.6f,
@@ -138,6 +142,54 @@ public class ShitCommand {
         scheduler.schedule(scheduler::shutdown, totalDelay, TimeUnit.MILLISECONDS);
 
         return 1;
+    }
+
+    // 计算玩家臀部位置（精确）
+    private static Vec3d getButtPosition(ServerPlayerEntity player) {
+        // 获取玩家位置
+        Vec3d playerPos = player.getPos();
+
+        // 获取玩家视线方向（单位向量）
+        Vec3d lookVec = player.getRotationVec(1.0f);
+
+        // 计算臀部位置：
+        // 1. 降低Y轴（玩家高度1.8，臀部大约在脚部上方0.3处）
+        // 2. 向后偏移（与视线方向相反）
+        double buttHeight = player.getY() - 0.3; // 臀部高度
+        double backwardOffset = 0.2; // 向后偏移量
+
+        // 计算水平方向的反方向（忽略Y轴）
+        Vec3d horizontalLook = new Vec3d(lookVec.x, 0, lookVec.z).normalize();
+        Vec3d buttOffset = horizontalLook.multiply(-backwardOffset);
+
+        return new Vec3d(
+                playerPos.x + buttOffset.x,
+                buttHeight,
+                playerPos.z + buttOffset.z
+        );
+    }
+
+    // 计算腐肉喷射速度（与玩家视角相反）
+    private static Vec3d calculateShitVelocity(ServerPlayerEntity player) {
+        // 获取玩家视线方向（单位向量）
+        Vec3d lookVec = player.getRotationVec(1.0f);
+
+        // 基础速度参数
+        float basePower = 0.4f;
+        float verticalBoost = 0.25f;
+        float randomSpread = 0.15f;
+
+        // 计算反向速度（X和Z方向取反，Y方向稍微向上）
+        double velX = -lookVec.x * basePower;
+        double velY = verticalBoost; // 主要向上喷射
+        double velZ = -lookVec.z * basePower;
+
+        // 添加随机扩散
+        velX += (player.getRandom().nextDouble() - 0.5) * randomSpread;
+        velY += player.getRandom().nextDouble() * 0.1; // 稍微增加Y方向的随机性
+        velZ += (player.getRandom().nextDouble() - 0.5) * randomSpread;
+
+        return new Vec3d(velX, velY, velZ);
     }
 
     private static int forbidPlayer(ServerCommandSource source, ServerPlayerEntity player) {
