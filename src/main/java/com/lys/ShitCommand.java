@@ -5,7 +5,9 @@ import net.minecraft.command.argument.EntityArgumentType;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
+import net.minecraft.util.Formatting;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.World;
 import net.minecraft.entity.ItemEntity;
@@ -50,17 +52,17 @@ public class ShitCommand {
 
     private static int executeShit(ServerCommandSource source, ServerPlayerEntity player) {
         if (player == null) {
-            source.sendError(Text.literal("只有玩家可以执行此命令"));
+            source.sendError(formatText("只有玩家可以执行此命令", Formatting.RED));
             return 0;
         }
 
         if (forbiddenPlayers.contains(player.getUuid())) {
-            source.sendError(Text.literal("你没有使用此命令的权限"));
+            source.sendError(formatText("你没有使用此命令的权限", Formatting.RED));
             return 0;
         }
 
         if (player.getHungerManager().getFoodLevel() < 5) {
-            player.sendMessage(Text.literal("你不能再拉啦，都要饿死了"), false);
+            player.sendMessage(formatText("你不能再拉啦，都要饿死了", Formatting.YELLOW), false);
             return 0;
         }
 
@@ -77,7 +79,7 @@ public class ShitCommand {
                 0.8f + player.getRandom().nextFloat() * 0.4f
         );
 
-        player.sendMessage(Text.literal("噗~"), false);
+        player.sendMessage(formatText("噗~", Formatting.GOLD), false);
 
         Vec3d playerPos = player.getPos();
         Vec3d lookVec = player.getRotationVec(1.0f);
@@ -85,9 +87,13 @@ public class ShitCommand {
 
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
         int count = 8 + player.getRandom().nextInt(5);
+        int baseDelay = 200; // 基础延迟200ms
+        int delayVariance = 100; // 延迟变化范围±100ms
 
         for (int i = 0; i < count; i++) {
-            final int delay = i * 100;
+            final int index = i;
+            int delay = baseDelay * i + player.getRandom().nextInt(delayVariance) - delayVariance/2;
+
             scheduler.schedule(() -> {
                 if (!player.isAlive()) return;
 
@@ -98,32 +104,63 @@ public class ShitCommand {
                             new ItemStack(Items.ROTTEN_FLESH)
                     );
 
+                    // 增加喷射动能
                     Vec3d velocity = new Vec3d(
-                            (player.getRandom().nextDouble() - 0.5) * 0.1,
-                            0.2 + player.getRandom().nextDouble() * 0.1,
-                            (player.getRandom().nextDouble() - 0.5) * 0.1
+                            (player.getRandom().nextDouble() - 0.5) * 0.3, // 增加水平速度
+                            0.3 + player.getRandom().nextDouble() * 0.2,    // 增加垂直速度
+                            (player.getRandom().nextDouble() - 0.5) * 0.3  // 增加水平速度
                     );
+
+                    // 添加一些旋转效果
+                    item.setYaw(player.getRandom().nextFloat() * 360.0F);
+                    item.setPitch(player.getRandom().nextFloat() * 180.0F - 90.0F);
                     item.setVelocity(velocity);
 
                     world.spawnEntity(item);
+
+                    // 每喷出几个腐肉播放一次音效
+                    if (index % 3 == 0) {
+                        world.playSound(
+                                null,
+                                behindPos.x, behindPos.y, behindPos.z,
+                                SoundEvents.ENTITY_SLIME_SQUISH,
+                                SoundCategory.PLAYERS,
+                                0.6f,
+                                0.5f + player.getRandom().nextFloat() * 0.5f
+                        );
+                    }
                 });
             }, delay, TimeUnit.MILLISECONDS);
         }
 
-        scheduler.schedule(scheduler::shutdown, count * 100 + 100, TimeUnit.MILLISECONDS);
+        // 修复整数乘法警告
+        long totalDelay = (long) count * baseDelay + 500;
+        scheduler.schedule(scheduler::shutdown, totalDelay, TimeUnit.MILLISECONDS);
 
         return 1;
     }
 
     private static int forbidPlayer(ServerCommandSource source, ServerPlayerEntity player) {
         forbiddenPlayers.add(player.getUuid());
-        source.sendFeedback(Text.literal("已禁止玩家 " + player.getName().getString() + " 使用/shit命令"), true);
+        source.sendFeedback(
+                formatText("已禁止玩家 " + player.getName().getString() + " 使用/shit命令", Formatting.GOLD),
+                true
+        );
         return 1;
     }
 
     private static int allowPlayer(ServerCommandSource source, ServerPlayerEntity player) {
         forbiddenPlayers.remove(player.getUuid());
-        source.sendFeedback(Text.literal("已允许玩家 " + player.getName().getString() + " 使用/shit命令"), true);
+        source.sendFeedback(
+                formatText("已允许玩家 " + player.getName().getString() + " 使用/shit命令", Formatting.GREEN),
+                true
+        );
         return 1;
+    }
+
+    // 格式化文本工具方法
+    private static MutableText formatText(String message, Formatting color) {
+        return Text.literal("[Shit] ").formatted(Formatting.DARK_GRAY)
+                .append(Text.literal(message).formatted(color));
     }
 }
