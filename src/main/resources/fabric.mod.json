@@ -1,9 +1,9 @@
 {
 	"schemaVersion": 1,
 	"id": "shitmod",
-	"version": "1.0.0",
+	"version": "1.0.2",
 	"name": "Shit Mod",
-	"description": "添加/shit命令的模组",
+	"description": "赤石模组",
 	"authors": ["YourName"],
 	"contact": {
 		"homepage": "https://example.com/",

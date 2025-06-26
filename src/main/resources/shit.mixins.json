@@ -2,7 +2,10 @@
 	"required": true,
 	"package": "com.lys.mixin",
 	"compatibilityLevel": "JAVA_17",
-	"mixins": ["ExampleMixin"],
+	"mixins": [
+		"ExampleMixin",
+		"SugarEdibleMixin"
+	],
 	"client": [],
 	"server": [],
 	"injectors": {
