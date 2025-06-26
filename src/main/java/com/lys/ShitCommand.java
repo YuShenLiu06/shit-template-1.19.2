@@ -1,5 +1,6 @@
 package com.lys;
 
+import com.lys.network.ServerPacketHelper;
 import com.mojang.brigadier.CommandDispatcher;
 import net.minecraft.command.argument.EntityArgumentType;
 import net.minecraft.entity.effect.StatusEffectInstance;
@@ -36,7 +37,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class ShitCommand {
     private static final Set<UUID> forbiddenPlayers = new HashSet<>();
-    // 存储粒子效果任务
     private static final Map<UUID, ScheduledFuture<?>> particleTasks = new ConcurrentHashMap<>();
 
     public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
@@ -90,6 +90,9 @@ public class ShitCommand {
         );
 
         player.sendMessage(formatText("噗~", Formatting.GOLD), false);
+
+        // 发送命令效果（声音）
+        ServerPacketHelper.sendShitCommandEffect(player);
 
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
         int count = 8 + player.getRandom().nextInt(5);
@@ -176,7 +179,7 @@ public class ShitCommand {
         return 1;
     }
 
-    // 触发负面效果（使用粒子效果替代红石粉）
+    // 触发负面效果
     private static void triggerNegativeEffects(ServerPlayerEntity player) {
         World world = player.getWorld();
 
@@ -187,67 +190,6 @@ public class ShitCommand {
         player.addStatusEffect(new StatusEffectInstance(StatusEffects.SLOWNESS, 5 * 20, 9));   // 5秒缓慢10级
 
         player.sendMessage(formatText("你感觉身体被掏空...", Formatting.DARK_RED), false);
-
-        // 创建血迹粒子效果（20秒）
-        ScheduledExecutorService particleScheduler = Executors.newSingleThreadScheduledExecutor();
-        final int duration = 20; // 20秒
-        final int interval = 1;  // 每秒1次
-
-        // 创建血红色粒子效果 (RGB: 0.9, 0.1, 0.1)
-        DustParticleEffect bloodParticle = new DustParticleEffect(
-                new Vec3f(0.9f, 0.1f, 0.1f), // 颜色 (RGB)
-                1.0f // 尺寸
-        );
-
-        ScheduledFuture<?> task = particleScheduler.scheduleAtFixedRate(() -> {
-            if (!player.isAlive()) {
-                particleScheduler.shutdown();
-                particleTasks.remove(player.getUuid());
-                return;
-            }
-
-            world.getServer().execute(() -> {
-                // 在玩家脚下生成血迹粒子效果
-                Vec3d pos = new Vec3d(player.getX(), player.getY() + 0.1, player.getZ());
-
-                // 1.19.2 兼容方式生成粒子效果
-                if (world instanceof ServerWorld) {
-                    ((ServerWorld) world).spawnParticles(
-                            player,
-                            bloodParticle,
-                            true, // 强制显示（即使超出渲染距离）
-                            pos.x, pos.y, pos.z,
-                            5, // 粒子数量
-                            0.5, 0.1, 0.5, // 随机偏移范围 (x,y,z)
-                            0.01 // 速度
-                    );
-
-                    // 添加一些随机扩散的血滴
-                    for (int i = 0; i < 5; i++) {
-                        double offsetX = (player.getRandom().nextDouble() - 0.5) * 0.5;
-                        double offsetZ = (player.getRandom().nextDouble() - 0.5) * 0.5;
-
-                        ((ServerWorld) world).spawnParticles(
-                                player,
-                                bloodParticle,
-                                true,
-                                pos.x + offsetX, pos.y, pos.z + offsetZ,
-                                1, // 粒子数量
-                                0.1, 0.1, 0.1, // 随机偏移范围
-                                0.01 // 速度
-                        );
-                    }
-                }
-            });
-        }, 0, interval, TimeUnit.SECONDS);
-
-        // 20秒后停止粒子效果
-        particleScheduler.schedule(() -> {
-            particleScheduler.shutdown();
-            particleTasks.remove(player.getUuid());
-        }, duration, TimeUnit.SECONDS);
-
-        particleTasks.put(player.getUuid(), task);
     }
 
     // 计算玩家臀部位置（跟随玩家移动）

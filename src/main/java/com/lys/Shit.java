@@ -6,9 +6,10 @@ import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 public class Shit implements ModInitializer {
 	@Override
 	public void onInitialize() {
-		// 使用v2版本的CommandRegistrationCallback
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
 				ShitCommand.register(dispatcher)
 		);
+
+		System.out.println("[ShitMod] 模组已加载");
 	}
 }
