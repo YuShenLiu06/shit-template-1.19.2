@@ -2,13 +2,17 @@ package com.lys;
 
 import com.mojang.brigadier.CommandDispatcher;
 import net.minecraft.command.argument.EntityArgumentType;
+import net.minecraft.entity.effect.StatusEffectInstance;
+import net.minecraft.entity.effect.StatusEffects;
+import net.minecraft.particle.DustParticleEffect;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
-import net.minecraft.util.math.MathHelper;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.math.Vec3f;
 import net.minecraft.world.World;
@@ -19,14 +23,21 @@ import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
 
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class ShitCommand {
     private static final Set<UUID> forbiddenPlayers = new HashSet<>();
+    // 存储粒子效果任务
+    private static final Map<UUID, ScheduledFuture<?>> particleTasks = new ConcurrentHashMap<>();
 
     public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
         dispatcher.register(CommandManager.literal("shit")
@@ -63,13 +74,10 @@ public class ShitCommand {
             return 0;
         }
 
-        if (player.getHungerManager().getFoodLevel() < 5) {
-            player.sendMessage(formatText("你不能再拉啦，都要饿死了", Formatting.YELLOW), false);
-            return 0;
-        }
-
-        int cost = 3 + player.getRandom().nextInt(3);
-        player.getHungerManager().setFoodLevel(player.getHungerManager().getFoodLevel() - cost);
+        // 计算总扣除饱食度
+        final int totalCost = 3 + player.getRandom().nextInt(3);
+        final AtomicInteger remainingCost = new AtomicInteger(totalCost);
+        final AtomicBoolean negativeMode = new AtomicBoolean(player.getHungerManager().getFoodLevel() <= 0);
 
         World world = player.getWorld();
         world.playSound(
@@ -83,40 +91,48 @@ public class ShitCommand {
 
         player.sendMessage(formatText("噗~", Formatting.GOLD), false);
 
-        // 获取玩家精确的臀部位置
-        Vec3d playerPos = getButtPosition(player);
-
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
         int count = 8 + player.getRandom().nextInt(5);
-        int baseDelay = 200; // 基础延迟200ms
-        int delayVariance = 100; // 延迟变化范围±100ms
+        int baseDelay = 200;
+        int delayVariance = 100;
 
         for (int i = 0; i < count; i++) {
             final int index = i;
             int delay = baseDelay * i + player.getRandom().nextInt(delayVariance) - delayVariance/2;
 
+            // 负面模式下增加延迟
+            if (negativeMode.get()) {
+                delay *= 2; // 双倍延迟
+            }
+
             scheduler.schedule(() -> {
                 if (!player.isAlive()) return;
 
                 world.getServer().execute(() -> {
+                    // 重新计算臀部位置（跟随玩家移动）
+                    Vec3d buttPos = getButtPosition(player);
+
                     // 创建腐肉实体
                     ItemEntity item = new ItemEntity(
                             world,
-                            playerPos.x, playerPos.y, playerPos.z,
+                            buttPos.x, buttPos.y, buttPos.z,
                             new ItemStack(Items.ROTTEN_FLESH)
                     );
 
-                    // 设置拾取延迟（防止立即拾取）
-                    item.setPickupDelay(40); // 2秒（20 ticks/秒）
+                    // 设置拾取延迟
+                    item.setPickupDelay(40);
 
-                    // 计算精确的喷射方向（与玩家视角相反）
+                    // 计算喷射速度
                     Vec3d velocity = calculateShitVelocity(player);
 
-                    // 添加随机旋转效果
+                    // 负面模式下速度减半
+                    if (negativeMode.get()) {
+                        velocity = velocity.multiply(0.5);
+                    }
+
+                    // 应用速度和旋转
                     item.setYaw(player.getRandom().nextFloat() * 360.0F);
                     item.setPitch(player.getRandom().nextFloat() * 180.0F - 90.0F);
-
-                    // 应用速度
                     item.setVelocity(velocity);
 
                     // 生成实体
@@ -126,52 +142,151 @@ public class ShitCommand {
                     if (index % 3 == 0) {
                         world.playSound(
                                 null,
-                                playerPos.x, playerPos.y, playerPos.z,
+                                buttPos.x, buttPos.y, buttPos.z,
                                 SoundEvents.ENTITY_SLIME_SQUISH,
                                 SoundCategory.PLAYERS,
                                 0.6f,
                                 0.5f + player.getRandom().nextFloat() * 0.5f
                         );
                     }
+
+                    // 逐渐扣除饱食度（每次1点）
+                    if (remainingCost.get() > 0 && player.getHungerManager().getFoodLevel() > 0) {
+                        // 仅扣除饱食度，不增加
+                        player.getHungerManager().setFoodLevel(
+                                Math.max(0, player.getHungerManager().getFoodLevel() - 1)
+                        );
+                        remainingCost.decrementAndGet();
+
+                        // 检查是否进入负面状态
+                        if (player.getHungerManager().getFoodLevel() <= 0 && !negativeMode.get()) {
+                            negativeMode.set(true);
+                            triggerNegativeEffects(player);
+                        }
+                    }
                 });
             }, delay, TimeUnit.MILLISECONDS);
         }
 
-        // 修复整数乘法警告
+        // 安排关闭调度器
         long totalDelay = (long) count * baseDelay + 500;
+        if (negativeMode.get()) totalDelay *= 2; // 负面模式延长关闭时间
         scheduler.schedule(scheduler::shutdown, totalDelay, TimeUnit.MILLISECONDS);
 
         return 1;
     }
 
-    // 计算玩家臀部位置（精确）
-    private static Vec3d getButtPosition(ServerPlayerEntity player) {
-        // 获取玩家位置
-        Vec3d playerPos = player.getPos();
+    // 触发负面效果（使用粒子效果替代红石粉）
+    private static void triggerNegativeEffects(ServerPlayerEntity player) {
+        World world = player.getWorld();
 
-        // 获取玩家视线方向（单位向量）
+        // 给予玩家负面效果
+        player.addStatusEffect(new StatusEffectInstance(StatusEffects.WEAKNESS, 15 * 20, 2)); // 15秒虚弱3级
+        player.addStatusEffect(new StatusEffectInstance(StatusEffects.BLINDNESS, 15 * 20, 2)); // 15秒失明3级
+        player.addStatusEffect(new StatusEffectInstance(StatusEffects.POISON, 15 * 20, 0));    // 15秒中毒1级
+        player.addStatusEffect(new StatusEffectInstance(StatusEffects.SLOWNESS, 5 * 20, 9));   // 5秒缓慢10级
+
+        player.sendMessage(formatText("你感觉身体被掏空...", Formatting.DARK_RED), false);
+
+        // 创建血迹粒子效果（20秒）
+        ScheduledExecutorService particleScheduler = Executors.newSingleThreadScheduledExecutor();
+        final int duration = 20; // 20秒
+        final int interval = 1;  // 每秒1次
+
+        // 创建血红色粒子效果 (RGB: 0.9, 0.1, 0.1)
+        DustParticleEffect bloodParticle = new DustParticleEffect(
+                new Vec3f(0.9f, 0.1f, 0.1f), // 颜色 (RGB)
+                1.0f // 尺寸
+        );
+
+        ScheduledFuture<?> task = particleScheduler.scheduleAtFixedRate(() -> {
+            if (!player.isAlive()) {
+                particleScheduler.shutdown();
+                particleTasks.remove(player.getUuid());
+                return;
+            }
+
+            world.getServer().execute(() -> {
+                // 在玩家脚下生成血迹粒子效果
+                Vec3d pos = new Vec3d(player.getX(), player.getY() + 0.1, player.getZ());
+
+                // 1.19.2 兼容方式生成粒子效果
+                if (world instanceof ServerWorld) {
+                    ((ServerWorld) world).spawnParticles(
+                            player,
+                            bloodParticle,
+                            true, // 强制显示（即使超出渲染距离）
+                            pos.x, pos.y, pos.z,
+                            5, // 粒子数量
+                            0.5, 0.1, 0.5, // 随机偏移范围 (x,y,z)
+                            0.01 // 速度
+                    );
+
+                    // 添加一些随机扩散的血滴
+                    for (int i = 0; i < 5; i++) {
+                        double offsetX = (player.getRandom().nextDouble() - 0.5) * 0.5;
+                        double offsetZ = (player.getRandom().nextDouble() - 0.5) * 0.5;
+
+                        ((ServerWorld) world).spawnParticles(
+                                player,
+                                bloodParticle,
+                                true,
+                                pos.x + offsetX, pos.y, pos.z + offsetZ,
+                                1, // 粒子数量
+                                0.1, 0.1, 0.1, // 随机偏移范围
+                                0.01 // 速度
+                        );
+                    }
+                }
+            });
+        }, 0, interval, TimeUnit.SECONDS);
+
+        // 20秒后停止粒子效果
+        particleScheduler.schedule(() -> {
+            particleScheduler.shutdown();
+            particleTasks.remove(player.getUuid());
+        }, duration, TimeUnit.SECONDS);
+
+        particleTasks.put(player.getUuid(), task);
+    }
+
+    // 计算玩家臀部位置（跟随玩家移动）
+    private static Vec3d getButtPosition(ServerPlayerEntity player) {
+        // 获取玩家位置和方向
+        Vec3d playerPos = player.getPos();
         Vec3d lookVec = player.getRotationVec(1.0f);
 
-        // 计算臀部位置：
-        // 1. 降低Y轴（玩家高度1.8，臀部大约在脚部上方0.3处）
-        // 2. 向后偏移（与视线方向相反）
-        double buttHeight = player.getY() - 0.3; // 臀部高度
-        double backwardOffset = 0.2; // 向后偏移量
-
         // 计算水平方向的反方向（忽略Y轴）
-        Vec3d horizontalLook = new Vec3d(lookVec.x, 0, lookVec.z).normalize();
-        Vec3d buttOffset = horizontalLook.multiply(-backwardOffset);
+        Vec3d horizontalLook = new Vec3d(lookVec.x, 0, lookVec.z);
+        double length = Math.sqrt(horizontalLook.x * horizontalLook.x + horizontalLook.z * horizontalLook.z);
+        if (length > 0) {
+            horizontalLook = new Vec3d(
+                    horizontalLook.x / length,
+                    0,
+                    horizontalLook.z / length
+            );
+        }
+
+        // 臀部位置计算：
+        // 1. 玩家位置Y轴减去0.3（臀部高度）
+        // 2. 向后偏移0.2格（臀部后方）
+        // 3. 考虑玩家宽度（0.6）避免在玩家体内生成
+        double offsetX = -horizontalLook.x * 0.2;
+        double offsetZ = -horizontalLook.z * 0.2;
+
+        // 确保不会在玩家体内生成
+        if (Math.abs(offsetX) < 0.3) offsetX = Math.copySign(0.3, offsetX);
+        if (Math.abs(offsetZ) < 0.3) offsetZ = Math.copySign(0.3, offsetZ);
 
         return new Vec3d(
-                playerPos.x + buttOffset.x,
-                buttHeight,
-                playerPos.z + buttOffset.z
+                playerPos.x + offsetX,
+                playerPos.y - 0.3,
+                playerPos.z + offsetZ
         );
     }
 
-    // 计算腐肉喷射速度（与玩家视角相反）
+    // 计算腐肉喷射速度
     private static Vec3d calculateShitVelocity(ServerPlayerEntity player) {
-        // 获取玩家视线方向（单位向量）
         Vec3d lookVec = player.getRotationVec(1.0f);
 
         // 基础速度参数
@@ -179,14 +294,14 @@ public class ShitCommand {
         float verticalBoost = 0.25f;
         float randomSpread = 0.15f;
 
-        // 计算反向速度（X和Z方向取反，Y方向稍微向上）
+        // 计算反向速度（X和Z方向取反）
         double velX = -lookVec.x * basePower;
-        double velY = verticalBoost; // 主要向上喷射
+        double velY = verticalBoost;
         double velZ = -lookVec.z * basePower;
 
         // 添加随机扩散
         velX += (player.getRandom().nextDouble() - 0.5) * randomSpread;
-        velY += player.getRandom().nextDouble() * 0.1; // 稍微增加Y方向的随机性
+        velY += player.getRandom().nextDouble() * 0.1;
         velZ += (player.getRandom().nextDouble() - 0.5) * randomSpread;
 
         return new Vec3d(velX, velY, velZ);
