@@ -10,7 +10,10 @@ import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 
-import java.util.*;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -19,19 +22,17 @@ import java.util.concurrent.TimeUnit;
 public class ScoreboardManager {
     private static final Map<UUID, Boolean> playerVisibility = new ConcurrentHashMap<>();
     private static boolean globalEnabled = true;
+    // 移除放置榜单，只保留挖掘、在线时长和死亡榜单
     private static final List<String> boardTypes = Arrays.asList(
-            "mined", "placed", "playtime", "deaths", "distance"
+            "mined", "playtime", "deaths"
     );
     private static int currentBoardIndex = 0;
     private static ScheduledExecutorService rotationScheduler;
     private static final int ROTATION_INTERVAL = 30; // 秒
-    private static ScoreboardConfig config;
     private static MinecraftServer server;
 
     public static void initialize(MinecraftServer minecraftServer) {
         server = minecraftServer;
-        config = ScoreboardConfig.load();
-        globalEnabled = config.globalEnabled;
         createObjectives(server);
         startRotationTask(server);
     }
@@ -45,25 +46,16 @@ public class ScoreboardManager {
                     formatText("挖掘榜单", Formatting.GOLD), ScoreboardCriterion.RenderType.INTEGER);
         }
 
-        if (scoreboard.getObjective("placed") == null) {
-            scoreboard.addObjective("placed", ScoreboardCriterion.DUMMY,
-                    formatText("放置榜单", Formatting.GREEN), ScoreboardCriterion.RenderType.INTEGER);
-        }
-
         if (scoreboard.getObjective("playtime") == null) {
+            // 修改标题为"在线时长(min)"
             scoreboard.addObjective("playtime", ScoreboardCriterion.DUMMY,
-                    formatText("在线时长", Formatting.BLUE), ScoreboardCriterion.RenderType.INTEGER);
+                    formatText("在线时长(min)", Formatting.BLUE), ScoreboardCriterion.RenderType.INTEGER);
         }
 
         // 使用DEATH_COUNT替代DEATHS
         if (scoreboard.getObjective("deaths") == null) {
             scoreboard.addObjective("deaths", ScoreboardCriterion.DEATH_COUNT,
                     formatText("死亡榜单", Formatting.RED), ScoreboardCriterion.RenderType.INTEGER);
-        }
-
-        if (scoreboard.getObjective("distance") == null) {
-            scoreboard.addObjective("distance", ScoreboardCriterion.DUMMY,
-                    formatText("移动距离", Formatting.YELLOW), ScoreboardCriterion.RenderType.INTEGER);
         }
     }
 
@@ -77,16 +69,26 @@ public class ScoreboardManager {
             if (!globalEnabled) return;
 
             server.execute(() -> {
-                currentBoardIndex = (currentBoardIndex + 1) % boardTypes.size();
-                String nextBoard = boardTypes.get(currentBoardIndex);
-
-                for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
-                    if (isScoreboardVisible(player)) {
-                        updateScoreboardDisplay(player, nextBoard);
-                    }
-                }
+                rotateToNextBoard();
             });
         }, ROTATION_INTERVAL, ROTATION_INTERVAL, TimeUnit.SECONDS);
+    }
+
+    // 切换到下一个榜单
+    public static void rotateToNextBoard() {
+        currentBoardIndex = (currentBoardIndex + 1) % boardTypes.size();
+        String nextBoard = boardTypes.get(currentBoardIndex);
+
+        for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
+            if (isScoreboardVisible(player)) {
+                updateScoreboardDisplay(player, nextBoard);
+            }
+        }
+    }
+
+    // 获取当前榜单名称
+    public static String getCurrentBoardName() {
+        return boardTypes.get(currentBoardIndex);
     }
 
     public static void updateScoreboardDisplay(ServerPlayerEntity player, String objectiveName) {
@@ -101,20 +103,20 @@ public class ScoreboardManager {
 
     public static void setGlobalEnabled(boolean enabled) {
         globalEnabled = enabled;
-        config.globalEnabled = enabled;
-        config.save();
 
         if (!enabled) {
             for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
                 // 清除侧边栏显示
                 player.getScoreboard().setObjectiveSlot(1, null);
             }
+        } else {
+            // 启用时刷新所有计分板
+            refreshAllScoreboards();
         }
     }
 
     public static void setPlayerVisibility(ServerPlayerEntity player, boolean visible) {
         playerVisibility.put(player.getUuid(), visible);
-        config.updatePlayerVisibility(player.getUuid(), visible);
 
         if (globalEnabled) {
             if (visible) {
@@ -128,6 +130,17 @@ public class ScoreboardManager {
 
     public static boolean isScoreboardVisible(PlayerEntity player) {
         return globalEnabled && playerVisibility.getOrDefault(player.getUuid(), true);
+    }
+
+    // 强制刷新所有玩家的计分板
+    public static void refreshAllScoreboards() {
+        if (server != null) {
+            for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
+                if (isScoreboardVisible(player)) {
+                    updateScoreboardDisplay(player, boardTypes.get(currentBoardIndex));
+                }
+            }
+        }
     }
 
     private static MutableText formatText(String message, Formatting color) {
