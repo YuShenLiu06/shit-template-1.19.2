@@ -3,6 +3,7 @@ package com.lys;
 import com.lys.command.SBCommand;
 import com.lys.command.ShitCommand;
 import com.lys.scoreboard.PlayTimeStorage;
+import com.lys.scoreboard.ScoreboardDataStorage;
 import com.lys.scoreboard.ScoreboardManager;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
@@ -13,6 +14,7 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.scoreboard.Scoreboard;
 import net.minecraft.scoreboard.ScoreboardObjective;
+import net.minecraft.scoreboard.ScoreboardPlayerScore;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.util.math.Vec3d;
@@ -41,11 +43,14 @@ public class Shit implements ModInitializer {
 			Shit.server = server;
 			ScoreboardManager.initialize(server);
 			PlayTimeStorage.load(server); // 加载在线时间数据
+			ScoreboardDataStorage.load(server); // 加载榜单数据
 		});
 
 		// 服务器停止事件
 		ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
 			PlayTimeStorage.save(server); // 保存在线时间数据
+			ScoreboardDataStorage.save(server); // 保存榜单数据
+			ScoreboardManager.shutdown(); // 关闭计分板任务
 		});
 
 		// 玩家登录事件
@@ -55,6 +60,7 @@ public class Shit implements ModInitializer {
 			loginTimeMap.put(uuid, System.currentTimeMillis());
 			currentSessionSecondsMap.put(uuid, 0L); // 重置当前会话时间
 			ScoreboardManager.setPlayerVisibility(player, true);
+			initializePlayerScores(player); // 初始化玩家计分板数据
 		});
 
 		// 玩家退出事件
@@ -86,17 +92,43 @@ public class Shit implements ModInitializer {
 		});
 	}
 
+	// 初始化玩家的计分板数据
+	private static void initializePlayerScores(ServerPlayerEntity player) {
+		UUID uuid = player.getUuid();
+		Scoreboard scoreboard = player.getScoreboard();
+
+		// 初始化挖掘榜
+		ScoreboardObjective minedObjective = scoreboard.getObjective("mined");
+		if (minedObjective != null) {
+			int savedMined = ScoreboardDataStorage.getPlayerScore(uuid, "mined");
+			scoreboard.getPlayerScore(player.getName().getString(), minedObjective).setScore(savedMined);
+		}
+
+		// 初始化死亡榜
+		ScoreboardObjective deathsObjective = scoreboard.getObjective("deaths");
+		if (deathsObjective != null) {
+			int savedDeaths = ScoreboardDataStorage.getPlayerScore(uuid, "deaths");
+			scoreboard.getPlayerScore(player.getName().getString(), deathsObjective).setScore(savedDeaths);
+		}
+	}
+
 	// 方块挖掘事件处理
 	public static void onBlockBreak(PlayerEntity player) {
 		updateScoreboardValue(player, "mined");
 	}
 
-	// 更新榜单值（通用方法）
+	// 更新榜单值（通用方法）- 修复 incrementScore() 问题
 	private static void updateScoreboardValue(PlayerEntity player, String objectiveName) {
 		Scoreboard scoreboard = player.getScoreboard();
 		ScoreboardObjective objective = scoreboard.getObjective(objectiveName);
 		if (objective != null) {
-			scoreboard.getPlayerScore(player.getName().getString(), objective).incrementScore();
+			// 1.19.2 兼容：incrementScore() 返回 void，需要手动获取新值
+			ScoreboardPlayerScore score = scoreboard.getPlayerScore(player.getName().getString(), objective);
+			int currentScore = score.getScore();
+			score.setScore(currentScore + 1);
+
+			// 保存到存储
+			ScoreboardDataStorage.setPlayerScore(player.getUuid(), objectiveName, currentScore + 1);
 		}
 	}
 
