@@ -14,9 +14,17 @@ import java.util.UUID;
 public class ScoreboardConfig {
     private static final Path CONFIG_PATH = FabricLoader.getInstance().getConfigDir().resolve("shitmod_scoreboard.json");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static ScoreboardConfig instance;
 
     public boolean globalEnabled = true;
     public Map<String, Boolean> playerVisibility = new HashMap<>();
+
+    public static ScoreboardConfig getConfig() {
+        if (instance == null) {
+            instance = load();
+        }
+        return instance;
+    }
 
     public static ScoreboardConfig load() {
         try {
@@ -26,7 +34,8 @@ public class ScoreboardConfig {
         } catch (IOException e) {
             e.printStackTrace();
         }
-        return new ScoreboardConfig();
+        instance = new ScoreboardConfig();
+        return instance;
     }
 
     public void save() {

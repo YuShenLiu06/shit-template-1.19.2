@@ -1,7 +1,7 @@
 package com.lys.command;
 
-import com.lys.Shit;
 import com.lys.scoreboard.PlayTimeStorage;
+import com.lys.scoreboard.ScoreboardDataStorage;
 import com.lys.scoreboard.ScoreboardManager;
 import com.mojang.brigadier.CommandDispatcher;
 import net.minecraft.command.argument.EntityArgumentType;
@@ -58,7 +58,6 @@ public class SBCommand {
                 .executes(context -> togglePlayerVisibility(context.getSource(), context.getSource().getPlayer())));
     }
 
-    // 其他方法保持不变...
     private static int setGlobalEnabled(ServerCommandSource source, boolean enabled) {
         ScoreboardManager.setGlobalEnabled(enabled);
         source.sendFeedback(formatText("全局榜单已" + (enabled ? "开启" : "关闭"),
@@ -99,12 +98,11 @@ public class SBCommand {
     }
 
     // 显示玩家调试信息
-// 显示玩家调试信息
     private static int showPlayerInfo(ServerCommandSource source, ServerPlayerEntity player) {
         UUID uuid = player.getUuid();
 
         // 获取在线时间（格式化）
-        String playTime = Shit.getFormattedPlayTime(uuid);
+        String playTime = com.lys.Shit.getFormattedPlayTime(uuid);
 
         // 获取各个榜单值
         int mined = getPlayerScoreValue(player, "mined");
@@ -126,8 +124,9 @@ public class SBCommand {
         // 重置在线时间
         PlayTimeStorage.resetPlayTime(uuid);
 
-        // 重置当前会话时间
-//        Shit.resetCurrentSessionTime(uuid);
+        // 重置榜单数据
+        ScoreboardDataStorage.resetPlayerScore(uuid, "mined");
+        ScoreboardDataStorage.resetPlayerScore(uuid, "deaths");
 
         // 重置榜单分数
         resetPlayerScore(player, "mined");

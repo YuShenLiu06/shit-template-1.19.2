@@ -35,6 +35,13 @@ public class ScoreboardManager {
         server = minecraftServer;
         createObjectives(server);
         startRotationTask(server);
+        refreshAllScoreboards(); // 启动时刷新所有计分板
+    }
+
+    public static void shutdown() {
+        if (rotationScheduler != null && !rotationScheduler.isShutdown()) {
+            rotationScheduler.shutdownNow();
+        }
     }
 
     private static void createObjectives(MinecraftServer server) {
@@ -117,6 +124,7 @@ public class ScoreboardManager {
 
     public static void setPlayerVisibility(ServerPlayerEntity player, boolean visible) {
         playerVisibility.put(player.getUuid(), visible);
+        ScoreboardConfig.getConfig().updatePlayerVisibility(player.getUuid(), visible);
 
         if (globalEnabled) {
             if (visible) {
@@ -126,10 +134,21 @@ public class ScoreboardManager {
                 player.getScoreboard().setObjectiveSlot(1, null);
             }
         }
+
+        // 发送状态提示
+        player.sendMessage(
+                Text.literal("[榜单] 个人榜单显示已" + (visible ? "开启" : "关闭"))
+                        .formatted(visible ? Formatting.GREEN : Formatting.RED),
+                false
+        );
     }
 
     public static boolean isScoreboardVisible(PlayerEntity player) {
-        return globalEnabled && playerVisibility.getOrDefault(player.getUuid(), true);
+        // 全局关闭时强制隐藏
+        if (!globalEnabled) return false;
+
+        // 全局开启时使用个人设置
+        return playerVisibility.getOrDefault(player.getUuid(), true);
     }
 
     // 强制刷新所有玩家的计分板
