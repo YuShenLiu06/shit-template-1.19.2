@@ -54,8 +54,8 @@ public class SBCommand {
                                                 EntityArgumentType.getPlayer(context, "player")))))));
 
         // 玩家个人命令改为 "mylb"
-        dispatcher.register(CommandManager.literal("mylb")
-                .executes(context -> togglePlayerVisibility(context.getSource(), context.getSource().getPlayer())));
+//        dispatcher.register(CommandManager.literal("mylb")
+//                .executes(context -> togglePlayerVisibility(context.getSource(), context.getSource().getPlayer())));
     }
 
     private static int setGlobalEnabled(ServerCommandSource source, boolean enabled) {
