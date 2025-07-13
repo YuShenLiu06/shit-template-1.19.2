@@ -151,13 +151,16 @@ public class ScoreboardManager {
         return playerVisibility.getOrDefault(player.getUuid(), true);
     }
 
-    // 强制刷新所有玩家的计分板
+    // 强制刷新所有玩家的计分板 (添加空检查)
     public static void refreshAllScoreboards() {
-        if (server != null) {
-            for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
-                if (isScoreboardVisible(player)) {
-                    updateScoreboardDisplay(player, boardTypes.get(currentBoardIndex));
-                }
+        if (server == null) return;
+
+        // 关键修复：检查玩家管理器是否初始化
+        if (server.getPlayerManager() == null) return;
+
+        for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
+            if (isScoreboardVisible(player)) {
+                updateScoreboardDisplay(player, boardTypes.get(currentBoardIndex));
             }
         }
     }

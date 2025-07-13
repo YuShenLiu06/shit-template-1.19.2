@@ -38,12 +38,16 @@ public class Shit implements ModInitializer {
 			SBCommand.register(dispatcher);
 		});
 
-		// 服务器启动事件
+		// 服务器启动事件 - 仅加载数据
 		ServerLifecycleEvents.SERVER_STARTING.register(server -> {
 			Shit.server = server;
-			ScoreboardManager.initialize(server);
 			PlayTimeStorage.load(server); // 加载在线时间数据
 			ScoreboardDataStorage.load(server); // 加载榜单数据
+		});
+
+		// 服务器已启动事件 - 初始化计分板
+		ServerLifecycleEvents.SERVER_STARTED.register(server -> {
+			ScoreboardManager.initialize(server);
 		});
 
 		// 服务器停止事件
